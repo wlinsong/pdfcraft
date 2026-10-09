@@ -194,6 +194,9 @@ pub struct Annotation {
     pub locked: bool,
     /// `/IT`, the intent: `FreeTextCallout`, `PolygonCloud`, `FreeTextTypeWriter`…
     pub intent: Option<String>,
+    /// A custom stamp's picture size (`/PCPictureSize`): its natural proportions. `None` for
+    /// other comments, including image signatures and initials.
+    pub stamp_picture_size: Option<[f32; 2]>,
 }
 
 impl Annotation {
@@ -433,6 +436,20 @@ impl<'a> Inspector<'a> {
         self.resolve(d.get(key).ok()?).as_name().ok().map(|n| String::from_utf8_lossy(n).into_owned())
     }
 
+    /// As `pdfcraft_annot::custom_stamp_size`: image signatures and initials share the picture
+    /// keys but aren't stamps.
+    fn custom_stamp_size(&self, d: &Dictionary, subtype: &str) -> Option<[f32; 2]> {
+        let name = self.name(d, b"Name")?;
+        if subtype != "Stamp" || !name.starts_with("PCCustom") || matches!(name.as_str(), "PCCustomSignature" | "PCCustomInitials") {
+            return None;
+        }
+        let Object::Array(a) = self.resolve(d.get(b"PCPictureSize").ok()?) else { return None };
+        match a.iter().map(|x| self.resolve(x).as_float().ok()).collect::<Option<Vec<f32>>>()?.as_slice() {
+            [w, h] if w.is_finite() && h.is_finite() && *w > 0.0 && *h > 0.0 => Some([*w, *h]),
+            _ => None,
+        }
+    }
+
     fn page_of(&self, o: &Object) -> Option<usize> {
         match o {
             Object::Reference(id) => self.page_index.get(id).copied(),
@@ -643,6 +660,7 @@ impl<'a> Inspector<'a> {
                     _ => Vec::new(),
                 };
                 let in_reply_to = d.get(b"IRT").ok().and_then(|o| self.dict(o)).and_then(|p| self.text(p, b"NM"));
+                let stamp_picture_size = self.custom_stamp_size(d, &subtype);
                 info.annotations.push(Annotation {
                     page,
                     subtype,
@@ -658,6 +676,7 @@ impl<'a> Inspector<'a> {
                     quads,
                     locked: d.get(b"F").ok().and_then(|f| self.resolve(f).as_i64().ok()).unwrap_or(0) & 128 != 0,
                     intent: self.name(d, b"IT"),
+                    stamp_picture_size,
                 });
             }
         }

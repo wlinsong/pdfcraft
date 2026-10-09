@@ -1709,6 +1709,7 @@ fn comment_list(doc: &pdfcraft_cos::Document) -> Vec<pdfcraft_render::Annotation
             quads: s.quads,
             locked: s.locked,
             intent: s.intent,
+            stamp_picture_size: s.stamp_picture_size,
         })
         .collect()
 }

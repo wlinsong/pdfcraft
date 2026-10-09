@@ -523,6 +523,18 @@ fn resizable(a: &Annotation) -> bool {
 }
 
 const HANDLES: [(i8, i8); 8] = [(-1, -1), (0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0)];
+const CORNERS: [(i8, i8); 4] = [(-1, -1), (1, -1), (1, 1), (-1, 1)];
+
+/// A custom stamp (a company chop, a logo) keeps its picture's proportions: corners only, no
+/// side handles that would stretch one axis.
+fn handles(a: &Annotation) -> &'static [(i8, i8)] {
+    if a.stamp_picture_size.is_some() { &CORNERS } else { &HANDLES }
+}
+
+/// A custom stamp's width : height, from its picture rather than its (possibly stretched) rect.
+fn stamp_ratio(a: &Annotation) -> Option<f32> {
+    a.stamp_picture_size.map(|[w, h]| w / h).filter(|r| r.is_finite() && *r > 0.0)
+}
 
 fn handle_pos(r: Rect, (hx, hy): (i8, i8)) -> Pos2 {
     let x = match hx {
@@ -787,7 +799,7 @@ fn select_input(
     let handle_at = |p: Pos2| -> Option<(i8, i8)> {
         let a = selected.filter(|a| cx.allowed && resizable(a))?;
         let r = cx.screen_rect(a);
-        HANDLES.into_iter().find(|h| handle_pos(r, *h).distance(p) <= 7.0)
+        handles(a).iter().copied().find(|h| handle_pos(r, *h).distance(p) <= 7.0)
     };
     let mut consumed = false;
     if let Some(p) = pointer {
@@ -808,7 +820,10 @@ fn select_input(
         && let Some(o) = origin
     {
         if let (Some(h), Some(a)) = (handle_at(o), selected) {
-            let aspect_ratio = view.signature_drag.aspect_ratio(cx.page, a.index).and_then(|ratio| {
+            // Shift frees a custom stamp's corners to stretch.
+            let free = ui.input(|i| i.modifiers.shift);
+            let ratio = view.signature_drag.aspect_ratio(cx.page, a.index).or_else(|| stamp_ratio(a).filter(|_| !free));
+            let aspect_ratio = ratio.and_then(|ratio| {
                 let p = cx.info.pages.get(cx.page)?;
                 let rotation = u32::from(p.rotation) + u32::from(cx.xf.rot);
                 Some(if rotation % 180 == 0 { ratio } else { ratio.recip() })
@@ -940,7 +955,7 @@ pub(crate) fn paint_page(ui: &egui::Ui, painter: &egui::Painter, cx: &PageCx<'_>
         let r = cx.adjusted_rect(a, cv.gesture.as_ref(), pointer, view.pending_edit.as_ref()).expand(2.0);
         painter.rect_stroke(r, CornerRadius::ZERO, Stroke::new(1.0, SELECT_BLUE), egui::StrokeKind::Middle);
         if cx.allowed && resizable(a) {
-            for h in HANDLES {
+            for &h in handles(a) {
                 let c = handle_pos(r, h);
                 painter.circle(c, 4.5, Color32::WHITE, Stroke::new(1.0, SELECT_BLUE));
             }

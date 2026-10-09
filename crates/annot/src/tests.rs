@@ -735,3 +735,18 @@ fn comments_without_appearances_get_one_for_display_only() {
     ]);
     assert!(with_missing_appearances(&complete).is_none());
 }
+
+#[test]
+fn custom_stamp_size_only_for_custom_stamps() {
+    assert_eq!(custom_stamp_size(b"Stamp", Some(b"PCCustomlogo"), &[60.0, 20.0]), Some([60.0, 20.0]));
+    // Image signatures and initials share the picture keys; built-in stamps and other comments don't have them.
+    for name in [&b"PCCustomSignature"[..], b"PCCustomInitials", b"Approved"] {
+        assert_eq!(custom_stamp_size(b"Stamp", Some(name), &[60.0, 20.0]), None);
+    }
+    assert_eq!(custom_stamp_size(b"Square", Some(b"PCCustomlogo"), &[60.0, 20.0]), None);
+    assert_eq!(custom_stamp_size(b"Stamp", None, &[60.0, 20.0]), None);
+    // Untrusted sizes: missing, zero, negative or not finite.
+    for size in [&[][..], &[60.0], &[0.0, 20.0], &[60.0, -1.0], &[f32::NAN, 20.0], &[60.0, f32::INFINITY], &[1.0, 2.0, 3.0]] {
+        assert_eq!(custom_stamp_size(b"Stamp", Some(b"PCCustomlogo"), size), None, "{size:?}");
+    }
+}

@@ -1543,6 +1543,9 @@ pub struct Summary {
     pub quads: Vec<[f32; 8]>,
     pub locked: bool,
     pub intent: Option<String>,
+    /// A custom stamp's picture size (`/PCPictureSize`): its natural proportions. `None` for
+    /// other comments, including image signatures and initials.
+    pub stamp_picture_size: Option<[f32; 2]>,
 }
 
 fn text_value(doc: &Document, d: &Dict, key: &[u8]) -> Option<String> {
@@ -1554,6 +1557,19 @@ fn text_value(doc: &Document, d: &Dict, key: &[u8]) -> Option<String> {
     };
     let s = s.trim_matches('\0').trim().to_string();
     (!s.is_empty()).then_some(s)
+}
+
+/// A custom stamp's natural size from its `/Subtype`, `/Name` and `/PCPictureSize`: positive and
+/// finite, or `None`. Image signatures and initials share the picture keys but aren't stamps.
+pub fn custom_stamp_size(subtype: &[u8], name: Option<&[u8]>, size: &[f32]) -> Option<[f32; 2]> {
+    let name = name?;
+    if subtype != b"Stamp" || !name.starts_with(b"PCCustom") || matches!(name, b"PCCustomSignature" | b"PCCustomInitials") {
+        return None;
+    }
+    match size {
+        [w, h] if w.is_finite() && h.is_finite() && *w > 0.0 && *h > 0.0 => Some([*w, *h]),
+        _ => None,
+    }
 }
 
 /// Every comment (not links, form widgets or pop-ups), ordered by page and then top edge.
@@ -1591,6 +1607,7 @@ pub fn summaries(doc: &Document) -> Vec<Summary> {
             }
             let quads = nums(b"QuadPoints").as_chunks::<8>().0.to_vec();
             let in_reply_to = d.get(b"IRT").map(|o| doc.resolve(o)).and_then(|o| o.as_dict().cloned()).and_then(|p| text_value(doc, &p, b"NM"));
+            let stamp_picture_size = custom_stamp_size(subtype.as_bytes(), d.name(b"Name"), &nums(b"PCPictureSize"));
             out.push(Summary {
                 page,
                 index,
@@ -1606,6 +1623,7 @@ pub fn summaries(doc: &Document) -> Vec<Summary> {
                 quads,
                 locked: d.get(b"F").and_then(|f| doc.resolve(f).as_int()).unwrap_or(0) & FLAG_LOCKED != 0,
                 intent: d.get(b"IT").and_then(|o| doc.resolve(o).as_name().map(|n| String::from_utf8_lossy(n).into_owned())),
+                stamp_picture_size,
             });
         }
     }
